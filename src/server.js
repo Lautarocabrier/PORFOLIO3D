@@ -27,6 +27,12 @@ app.get("/", (req, res) => {
   res.send("Hola, este es el backend del portfolio");
 });
 
+// Endpoint estándar para que servicios de hosting/monitoreo chequeen
+// que el server está vivo, sin necesidad de golpear una ruta "real".
+app.get("/health", (req, res) => {
+  res.json({ status: "ok" });
+});
+
 // Todo lo que llegue a "/proyectos..." se delega al router correspondiente.
 app.use("/proyectos", proyectosRoutes);
 app.use("/experiencia", experienciaRoutes);
