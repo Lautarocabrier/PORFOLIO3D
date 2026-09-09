@@ -21,8 +21,48 @@ document.body.appendChild(renderer.domElement);
 const ANCHO = 10;
 const ALTO = 3;
 
-const materialPiso = new THREE.MeshStandardMaterial({ color: 0x8a8a8a });
-const materialPared = new THREE.MeshStandardMaterial({ color: 0xcfcfcf });
+// Genera una textura de mármol "a mano", dibujando en un <canvas> oculto
+// (fondo claro + vetas curvas grises semi-transparentes) y usando ese
+// canvas como textura. Evita depender de una imagen externa.
+function crearTexturaMarmol() {
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 512;
+  const ctx = canvas.getContext("2d");
+
+  ctx.fillStyle = "#f3ede3";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  for (let i = 0; i < 14; i++) {
+    ctx.beginPath();
+    ctx.moveTo(Math.random() * canvas.width, Math.random() * canvas.height);
+    ctx.bezierCurveTo(
+      Math.random() * canvas.width,
+      Math.random() * canvas.height,
+      Math.random() * canvas.width,
+      Math.random() * canvas.height,
+      Math.random() * canvas.width,
+      Math.random() * canvas.height
+    );
+    ctx.strokeStyle = `rgba(150, 138, 125, ${0.15 + Math.random() * 0.2})`;
+    ctx.lineWidth = 1 + Math.random() * 2;
+    ctx.stroke();
+  }
+
+  const textura = new THREE.CanvasTexture(canvas);
+  textura.wrapS = THREE.RepeatWrapping;
+  textura.wrapT = THREE.RepeatWrapping;
+  textura.repeat.set(4, 4); // repite el patrón 4x4 veces sobre el piso de 10x10
+  return textura;
+}
+
+const materialPiso = new THREE.MeshStandardMaterial({
+  map: crearTexturaMarmol(),
+  roughness: 0.35, // bajo = más brillante/pulido, como mármol real
+  metalness: 0.05,
+});
+// Tono arena cálido para las paredes (en vez del gris frío que teníamos).
+const materialPared = new THREE.MeshStandardMaterial({ color: 0xe3c9a0 });
 
 // PlaneGeometry crea un plano (2D) que hay que rotar/posicionar en el
 // espacio 3D para que cumpla el rol de piso o pared.
@@ -68,42 +108,43 @@ const mesita = new THREE.Group();
 const pataGeometria = new THREE.BoxGeometry(0.06, 0.5, 0.06);
 const materialMadera = new THREE.MeshStandardMaterial({ color: 0x6b4423 });
 
-// Una pata en cada esquina de la mesa (0.5 de ancho x 0.35 de profundidad).
+// Una pata en cada esquina de la mesa (0.6 de ancho x 0.5 de profundidad,
+// agrandada para que el tocadiscos más grande entre bien).
 [
-  [-0.22, -0.15],
-  [0.22, -0.15],
-  [-0.22, 0.15],
-  [0.22, 0.15],
+  [-0.26, -0.21],
+  [0.26, -0.21],
+  [-0.26, 0.21],
+  [0.26, 0.21],
 ].forEach(([x, z]) => {
   const pata = new THREE.Mesh(pataGeometria, materialMadera);
   pata.position.set(x, 0.25, z);
   mesita.add(pata);
 });
 
-const tapa = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.04, 0.35), materialMadera);
+const tapa = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.04, 0.5), materialMadera);
 tapa.position.set(0, 0.52, 0);
 mesita.add(tapa);
 
-// El tocadiscos: base + disco (gira solo, decorativo) + brazo.
+// El tocadiscos (más grande que antes): base + disco (gira solo) + brazo.
 const baseTocadiscos = new THREE.Mesh(
-  new THREE.BoxGeometry(0.3, 0.04, 0.3),
+  new THREE.BoxGeometry(0.45, 0.05, 0.45),
   new THREE.MeshStandardMaterial({ color: 0x222222 })
 );
-baseTocadiscos.position.set(0, 0.56, 0);
+baseTocadiscos.position.set(0, 0.565, 0);
 mesita.add(baseTocadiscos);
 
 const disco = new THREE.Mesh(
-  new THREE.CylinderGeometry(0.12, 0.12, 0.01, 32),
+  new THREE.CylinderGeometry(0.18, 0.18, 0.015, 32),
   new THREE.MeshStandardMaterial({ color: 0x111111 })
 );
-disco.position.set(0, 0.585, 0);
+disco.position.set(0, 0.598, 0);
 mesita.add(disco);
 
 const brazo = new THREE.Mesh(
-  new THREE.BoxGeometry(0.02, 0.02, 0.15),
+  new THREE.BoxGeometry(0.03, 0.03, 0.22),
   new THREE.MeshStandardMaterial({ color: 0x888888 })
 );
-brazo.position.set(0.13, 0.6, -0.1);
+brazo.position.set(0.19, 0.62, -0.15);
 brazo.rotation.y = 0.4;
 mesita.add(brazo);
 
@@ -113,6 +154,72 @@ scene.add(mesita);
 
 // Punto de referencia para medir distancia del jugador (a la altura del disco).
 const posTocadiscos = new THREE.Vector3(3.5, 1, -4.3);
+
+// --- Repisa con vinilos, en la pared, sobre el tocadiscos ---
+const repisa = new THREE.Mesh(
+  new THREE.BoxGeometry(1, 0.04, 0.25),
+  materialMadera
+);
+repisa.position.set(3.5, 1.4, -4.85);
+scene.add(repisa);
+
+// Cada vinilo es una caja fina "parada" (como un disco guardado en su funda),
+// con colores distintos para que se note que son portadas distintas.
+const coloresVinilos = [0x3d5a6c, 0xc97b4a, 0x6b8e5a, 0xd9a05b, 0x8a4f5e];
+
+coloresVinilos.forEach((color, i) => {
+  const vinilo = new THREE.Mesh(
+    new THREE.BoxGeometry(0.02, 0.28, 0.28),
+    new THREE.MeshStandardMaterial({ color })
+  );
+  // i - 2 centra la fila (con 5 vinilos, quedan en -2,-1,0,1,2 de separación).
+  vinilo.position.set(3.5 + (i - 2) * 0.19, 1.56, -4.85);
+  scene.add(vinilo);
+});
+
+// --- Cama, contra la pared izquierda ---
+// Convención de esta sección: el eje X del grupo es el "largo" de la cama
+// (el lado negativo de X queda pegado a la pared, ahí va la almohada).
+const cama = new THREE.Group();
+
+const frame = new THREE.Mesh(
+  new THREE.BoxGeometry(2, 0.3, 1.2),
+  new THREE.MeshStandardMaterial({ color: 0x8b5e34 })
+);
+frame.position.set(0, 0.15, 0);
+cama.add(frame);
+
+const colchon = new THREE.Mesh(
+  new THREE.BoxGeometry(1.9, 0.2, 1.1),
+  new THREE.MeshStandardMaterial({ color: 0xf2e9dc })
+);
+colchon.position.set(0, 0.4, 0);
+cama.add(colchon);
+
+const almohada = new THREE.Mesh(
+  new THREE.BoxGeometry(0.3, 0.12, 0.9),
+  new THREE.MeshStandardMaterial({ color: 0xfaf6ef })
+);
+almohada.position.set(-0.75, 0.48, 0);
+cama.add(almohada);
+
+const manta = new THREE.Mesh(
+  new THREE.BoxGeometry(1.3, 0.06, 1.15),
+  new THREE.MeshStandardMaterial({ color: 0xc97b4a })
+);
+manta.position.set(0.3, 0.43, 0);
+cama.add(manta);
+
+// Headboard (respaldo) contra la pared, para que se note que la cama "apoya" ahí.
+const respaldo = new THREE.Mesh(
+  new THREE.BoxGeometry(0.08, 0.9, 1.2),
+  new THREE.MeshStandardMaterial({ color: 0x8b5e34 })
+);
+respaldo.position.set(-1.04, 0.45, 0);
+cama.add(respaldo);
+
+cama.position.set(-3.7, 0, -1);
+scene.add(cama);
 
 // PointerLockControls resuelve el "mouse look": bloquea el cursor en el centro
 // de la pantalla y rota la cámara según el movimiento del mouse (estilo FPS).
