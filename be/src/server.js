@@ -19,7 +19,10 @@ const app = express();
 // helmet setea varios headers HTTP de seguridad recomendados por defecto
 // (ej: evita que el navegador adivine el tipo de contenido, oculta qué
 // tecnología corre el server, etc.). Es una sola línea pero buena práctica real.
-app.use(helmet());
+// Por defecto, helmet pone Cross-Origin-Resource-Policy: same-origin, que
+// bloquea que el frontend (otro puerto = otro origen) lea las respuestas,
+// incluso con cors() habilitado. Como esta API es pública, la relajamos.
+app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 app.use(cors());
 app.use(express.json());
 
