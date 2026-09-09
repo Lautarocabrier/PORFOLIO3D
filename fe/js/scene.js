@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { PointerLockControls } from "https://unpkg.com/three@0.186.0/examples/jsm/controls/PointerLockControls.js";
 
 const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x87ceeb);
 
 const camera = new THREE.PerspectiveCamera(
   75,
@@ -9,186 +10,309 @@ const camera = new THREE.PerspectiveCamera(
   0.1,
   1000
 );
-// Altura de ojos humana aproximada (1.6m si 1 unidad = 1 metro, convención
-// habitual en 3D). Declarada acá arriba porque también la usan el salto y
-// la colisión más abajo.
 const ALTURA_OJOS = 1.6;
-
-// Posicionamos la cámara DENTRO de la habitación, a esa altura de ojos.
 camera.position.set(0, ALTURA_OJOS, 3);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
 document.body.appendChild(renderer.domElement);
 
-// Dimensiones de la habitación: 10 de ancho (x) x 10 de profundidad (z) x 3 de alto (y).
 const ANCHO = 10;
-const ALTO = 3;
+const ALTO = 4;
 
-// Genera una textura de mármol "a mano", dibujando en un <canvas> oculto
-// (fondo claro + vetas curvas grises semi-transparentes) y usando ese
-// canvas como textura. Evita depender de una imagen externa.
-function crearTexturaMarmol() {
+// ── Texturas procedurales ──────────────────────────────────────────
+
+function crearTexturaParquet() {
   const canvas = document.createElement("canvas");
   canvas.width = 512;
   canvas.height = 512;
   const ctx = canvas.getContext("2d");
 
-  ctx.fillStyle = "#f3ede3";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const plankH = 64;
+  for (let y = 0; y < 512; y += plankH) {
+    const r = 168 + Math.random() * 35;
+    const g = 118 + Math.random() * 30;
+    const b = 52 + Math.random() * 25;
+    ctx.fillStyle = `rgb(${r},${g},${b})`;
+    ctx.fillRect(0, y, 512, plankH);
 
-  for (let i = 0; i < 14; i++) {
-    ctx.beginPath();
-    ctx.moveTo(Math.random() * canvas.width, Math.random() * canvas.height);
-    ctx.bezierCurveTo(
-      Math.random() * canvas.width,
-      Math.random() * canvas.height,
-      Math.random() * canvas.width,
-      Math.random() * canvas.height,
-      Math.random() * canvas.width,
-      Math.random() * canvas.height
-    );
-    ctx.strokeStyle = `rgba(150, 138, 125, ${0.15 + Math.random() * 0.2})`;
-    ctx.lineWidth = 1 + Math.random() * 2;
-    ctx.stroke();
+    for (let i = 0; i < 8; i++) {
+      const gy = y + Math.random() * plankH;
+      ctx.beginPath();
+      ctx.moveTo(0, gy);
+      ctx.bezierCurveTo(
+        128, gy + Math.random() * 4 - 2,
+        384, gy + Math.random() * 4 - 2,
+        512, gy + Math.random() * 6 - 3
+      );
+      ctx.strokeStyle = `rgba(100,65,25,${0.06 + Math.random() * 0.08})`;
+      ctx.lineWidth = 0.5 + Math.random();
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = "rgba(30,18,8,0.5)";
+    ctx.fillRect(0, y + plankH - 1, 512, 1.5);
+
+    if (Math.random() > 0.75) {
+      const kx = 50 + Math.random() * 400;
+      const ky = y + 10 + Math.random() * (plankH - 20);
+      ctx.beginPath();
+      ctx.ellipse(kx, ky, 5 + Math.random() * 5, 3 + Math.random() * 4, Math.random() * Math.PI, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(110,70,30,${0.2 + Math.random() * 0.15})`;
+      ctx.fill();
+    }
   }
 
-  const textura = new THREE.CanvasTexture(canvas);
-  textura.wrapS = THREE.RepeatWrapping;
-  textura.wrapT = THREE.RepeatWrapping;
-  textura.repeat.set(4, 4); // repite el patrón 4x4 veces sobre el piso de 10x10
-  return textura;
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(3, 3);
+  return tex;
 }
 
-const materialPiso = new THREE.MeshStandardMaterial({
-  map: crearTexturaMarmol(),
-  roughness: 0.35, // bajo = más brillante/pulido, como mármol real
-  metalness: 0.05,
-});
-// Tono arena cálido para las paredes (en vez del gris frío que teníamos).
-const materialPared = new THREE.MeshStandardMaterial({ color: 0xe3c9a0 });
+function crearTexturaCiudad() {
+  const canvas = document.createElement("canvas");
+  canvas.width = 2048;
+  canvas.height = 1024;
+  const ctx = canvas.getContext("2d");
 
-// PlaneGeometry crea un plano (2D) que hay que rotar/posicionar en el
-// espacio 3D para que cumpla el rol de piso o pared.
+  const sky = ctx.createLinearGradient(0, 0, 0, 1024);
+  sky.addColorStop(0, "#4a8fc4");
+  sky.addColorStop(0.3, "#7cb8d8");
+  sky.addColorStop(0.55, "#a8d0e4");
+  sky.addColorStop(0.75, "#d0e4ef");
+  sky.addColorStop(1, "#ecf2f6");
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, 2048, 1024);
+
+  for (let i = 0; i < 14; i++) {
+    const cx = Math.random() * 2048;
+    const cy = 30 + Math.random() * 180;
+    const blobs = 2 + Math.floor(Math.random() * 4);
+    for (let b = 0; b < blobs; b++) {
+      ctx.fillStyle = `rgba(255,255,255,${0.45 + Math.random() * 0.35})`;
+      ctx.beginPath();
+      ctx.ellipse(
+        cx + (b - blobs / 2) * (30 + Math.random() * 45),
+        cy + Math.random() * 12 - 6,
+        25 + Math.random() * 60,
+        10 + Math.random() * 22,
+        0, 0, Math.PI * 2
+      );
+      ctx.fill();
+    }
+  }
+
+  for (let x = -10; x < 2058; x += 10 + Math.random() * 30) {
+    const h = 50 + Math.random() * 180;
+    const w = 8 + Math.random() * 30;
+    const g = 135 + Math.floor(Math.random() * 50);
+    ctx.fillStyle = `rgb(${g - 5},${g + 5},${g + 15})`;
+    ctx.fillRect(x, 1024 - h, w, h);
+  }
+
+  for (let x = -10; x < 2058; x += 18 + Math.random() * 50) {
+    const h = 160 + Math.random() * 480;
+    const w = 15 + Math.random() * 65;
+    const s = 45 + Math.floor(Math.random() * 35);
+    ctx.fillStyle = `rgb(${s + 5},${s + 8},${s + 18})`;
+    ctx.fillRect(x, 1024 - h, w, h);
+
+    for (let wy = 1024 - h + 6; wy < 1018; wy += 12) {
+      for (let wx = x + 3; wx < x + w - 3; wx += 9) {
+        if (Math.random() > 0.28) {
+          ctx.fillStyle = Math.random() > 0.4
+            ? `rgba(255,225,150,${0.4 + Math.random() * 0.5})`
+            : `rgba(170,200,230,${0.25 + Math.random() * 0.3})`;
+          ctx.fillRect(wx, wy, 5, 7);
+        }
+      }
+    }
+  }
+
+  return new THREE.CanvasTexture(canvas);
+}
+
+// ── Habitación ─────────────────────────────────────────────────────
+
+const materialPiso = new THREE.MeshStandardMaterial({
+  map: crearTexturaParquet(),
+  roughness: 0.55,
+  metalness: 0.02,
+});
+const materialPared = new THREE.MeshStandardMaterial({ color: 0x2c3e50 });
+const materialTecho = new THREE.MeshStandardMaterial({ color: 0xf0f0f0 });
+
 const piso = new THREE.Mesh(new THREE.PlaneGeometry(ANCHO, ANCHO), materialPiso);
-piso.rotation.x = -Math.PI / 2; // lo acuesta: de "parado" (mirando a cámara) a "horizontal"
+piso.rotation.x = -Math.PI / 2;
+piso.receiveShadow = true;
 scene.add(piso);
 
-// Pared del fondo: sin rotar, su cara visible (normal) ya mira hacia +z,
-// que es hacia adentro de la habitación (donde está la cámara).
-const paredFondo = new THREE.Mesh(new THREE.PlaneGeometry(ANCHO, ALTO), materialPared);
-paredFondo.position.set(0, ALTO / 2, -ANCHO / 2);
+const techo = new THREE.Mesh(new THREE.PlaneGeometry(ANCHO, ANCHO), materialTecho);
+techo.rotation.x = Math.PI / 2;
+techo.position.y = ALTO;
+scene.add(techo);
+
+// Pared del fondo: un gran hueco que ocupa casi toda la superficie (ventanal).
+const VENTANAL_MARGEN_LAT = 0.25;
+const VENTANAL_MARGEN_INF = 0.1;
+const VENTANAL_MARGEN_SUP = 0.15;
+const VENTANAL_ANCHO = ANCHO - VENTANAL_MARGEN_LAT * 2;
+const VENTANAL_ALTO = ALTO - VENTANAL_MARGEN_INF - VENTANAL_MARGEN_SUP;
+
+const formaParedFondo = new THREE.Shape();
+formaParedFondo.moveTo(-ANCHO / 2, 0);
+formaParedFondo.lineTo(ANCHO / 2, 0);
+formaParedFondo.lineTo(ANCHO / 2, ALTO);
+formaParedFondo.lineTo(-ANCHO / 2, ALTO);
+formaParedFondo.lineTo(-ANCHO / 2, 0);
+
+const vX1 = -VENTANAL_ANCHO / 2;
+const vX2 = VENTANAL_ANCHO / 2;
+const vY1 = VENTANAL_MARGEN_INF;
+const vY2 = ALTO - VENTANAL_MARGEN_SUP;
+
+const huecoVentanal = new THREE.Path();
+huecoVentanal.moveTo(vX1, vY1);
+huecoVentanal.lineTo(vX1, vY2);
+huecoVentanal.lineTo(vX2, vY2);
+huecoVentanal.lineTo(vX2, vY1);
+huecoVentanal.lineTo(vX1, vY1);
+formaParedFondo.holes.push(huecoVentanal);
+
+const paredFondo = new THREE.Mesh(
+  new THREE.ShapeGeometry(formaParedFondo),
+  materialPared
+);
+paredFondo.position.set(0, 0, -ANCHO / 2);
 scene.add(paredFondo);
 
-// Pared frontal: hay que rotarla 180° para que su cara visible mire
-// hacia -z (de nuevo, hacia adentro), ya que queda "detrás" de la cámara.
 const paredFrente = new THREE.Mesh(new THREE.PlaneGeometry(ANCHO, ALTO), materialPared);
 paredFrente.position.set(0, ALTO / 2, ANCHO / 2);
 paredFrente.rotation.y = Math.PI;
 scene.add(paredFrente);
 
-// Pared izquierda: rotada 90° para que su cara mire hacia +x (adentro).
 const paredIzquierda = new THREE.Mesh(new THREE.PlaneGeometry(ANCHO, ALTO), materialPared);
 paredIzquierda.position.set(-ANCHO / 2, ALTO / 2, 0);
 paredIzquierda.rotation.y = Math.PI / 2;
 scene.add(paredIzquierda);
 
-// Pared derecha: rotada -90° para que su cara mire hacia -x (adentro).
 const paredDerecha = new THREE.Mesh(new THREE.PlaneGeometry(ANCHO, ALTO), materialPared);
 paredDerecha.position.set(ANCHO / 2, ALTO / 2, 0);
 paredDerecha.rotation.y = -Math.PI / 2;
 scene.add(paredDerecha);
 
-// --- Techo a dos aguas (estilo cabaña) ---
-// Un techo a dos aguas son dos "faldones" (paneles inclinados) que suben
-// desde el borde de cada pared hasta encontrarse en una cumbrera central.
-const ALTURA_TECHO = 2; // cuánto sube el techo desde el borde de la pared hasta el pico
-const CORRIDA_TECHO = ANCHO / 2; // distancia horizontal desde la pared hasta el centro
-// Teorema de Pitágoras: el largo real del faldón (la "hipotenusa" de la subida).
-const LARGO_FALDON = Math.sqrt(CORRIDA_TECHO ** 2 + ALTURA_TECHO ** 2);
-// Ángulo de inclinación respecto a la horizontal (atan2 da el ángulo de un triángulo
-// a partir de sus catetos: opuesto=ALTURA_TECHO, adyacente=CORRIDA_TECHO).
-const ANGULO_TECHO = Math.atan2(ALTURA_TECHO, CORRIDA_TECHO);
+// ── Ventanal industrial (marco metálico + grilla + vidrio) ─────────
 
-// DoubleSide: el panel se ve desde las dos caras. Con una sola rotación
-// nueva (no probada visualmente todavía como las paredes) es más seguro
-// que apostar a que la normal quedó mirando exactamente para el lado justo.
-const materialTecho = new THREE.MeshStandardMaterial({ color: 0x5c3a21, side: THREE.DoubleSide });
+const zPared = -ANCHO / 2;
+const materialMarco = new THREE.MeshStandardMaterial({
+  color: 0x1a1a1a,
+  metalness: 0.85,
+  roughness: 0.25,
+});
+const grosorFrame = 0.05;
 
-// Técnica de "bisagra": un Group ubicado justo en el borde superior de la
-// pared (donde el faldón debe arrancar), rotado en Z. Todo lo que cuelga
-// del group rota junto con él, como una puerta sobre su gozne.
-const bisagraDerecha = new THREE.Group();
-bisagraDerecha.position.set(ANCHO / 2, ALTO, 0);
-bisagraDerecha.rotation.z = -ANGULO_TECHO;
-scene.add(bisagraDerecha);
+function addFrame(w, h, d, x, y, z) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), materialMarco);
+  m.position.set(x, y, z);
+  scene.add(m);
+}
 
-const faldonDerecho = new THREE.Mesh(
-  new THREE.PlaneGeometry(LARGO_FALDON, ANCHO),
-  materialTecho
+addFrame(VENTANAL_ANCHO + grosorFrame * 2, grosorFrame, 0.06, 0, vY2 + grosorFrame / 2, zPared + 0.03);
+addFrame(VENTANAL_ANCHO + grosorFrame * 2, grosorFrame, 0.06, 0, vY1 - grosorFrame / 2, zPared + 0.03);
+addFrame(grosorFrame, VENTANAL_ALTO + grosorFrame * 2, 0.06, vX1 - grosorFrame / 2, vY1 + VENTANAL_ALTO / 2, zPared + 0.03);
+addFrame(grosorFrame, VENTANAL_ALTO + grosorFrame * 2, 0.06, vX2 + grosorFrame / 2, vY1 + VENTANAL_ALTO / 2, zPared + 0.03);
+
+const COLS = 5;
+const FILAS = 3;
+
+for (let i = 1; i < COLS; i++) {
+  const x = vX1 + (VENTANAL_ANCHO / COLS) * i;
+  addFrame(grosorFrame * 0.6, VENTANAL_ALTO, 0.04, x, vY1 + VENTANAL_ALTO / 2, zPared + 0.03);
+}
+
+for (let i = 1; i < FILAS; i++) {
+  const y = vY1 + (VENTANAL_ALTO / FILAS) * i;
+  addFrame(VENTANAL_ANCHO, grosorFrame * 0.6, 0.04, 0, y, zPared + 0.03);
+}
+
+const vidrio = new THREE.Mesh(
+  new THREE.PlaneGeometry(VENTANAL_ANCHO, VENTANAL_ALTO),
+  new THREE.MeshStandardMaterial({
+    color: 0xbfd9e8,
+    transparent: true,
+    opacity: 0.08,
+    side: THREE.DoubleSide,
+  })
 );
-faldonDerecho.rotation.x = -Math.PI / 2; // lo acuesta, igual que hicimos con el piso
-faldonDerecho.position.set(-LARGO_FALDON / 2, 0, 0); // lo corre para que arranque EN la bisagra
-bisagraDerecha.add(faldonDerecho);
+vidrio.position.set(0, vY1 + VENTANAL_ALTO / 2, zPared + 0.01);
+scene.add(vidrio);
 
-const bisagraIzquierda = new THREE.Group();
-bisagraIzquierda.position.set(-ANCHO / 2, ALTO, 0);
-bisagraIzquierda.rotation.z = ANGULO_TECHO; // espejado: ángulo opuesto
-scene.add(bisagraIzquierda);
-
-const faldonIzquierdo = new THREE.Mesh(
-  new THREE.PlaneGeometry(LARGO_FALDON, ANCHO),
-  materialTecho
+const windowsill = new THREE.Mesh(
+  new THREE.BoxGeometry(VENTANAL_ANCHO + 0.1, 0.04, 0.18),
+  materialMarco
 );
-faldonIzquierdo.rotation.x = -Math.PI / 2;
-faldonIzquierdo.position.set(LARGO_FALDON / 2, 0, 0); // espejado: hacia el otro lado
-bisagraIzquierda.add(faldonIzquierdo);
+windowsill.position.set(0, vY1, zPared + 0.09);
+scene.add(windowsill);
 
-// Viga de cumbrera: una tabla larga en el pico, donde se juntan los dos faldones.
-const cumbrera = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, ANCHO), materialTecho);
-cumbrera.position.set(0, ALTO + ALTURA_TECHO, 0);
-scene.add(cumbrera);
+// ── Paisaje urbano (detrás de la ventana) ──────────────────────────
 
-// Frontones: los triángulos que tapan el hueco arriba de la pared frontal y
-// la del fondo (donde el techo, visto de frente, forma una "A").
-const formaFronton = new THREE.Shape();
-formaFronton.moveTo(-ANCHO / 2, 0);
-formaFronton.lineTo(ANCHO / 2, 0);
-formaFronton.lineTo(0, ALTURA_TECHO);
-formaFronton.lineTo(-ANCHO / 2, 0);
-const geometriaFronton = new THREE.ShapeGeometry(formaFronton);
+const paisaje = new THREE.Mesh(
+  new THREE.PlaneGeometry(ANCHO * 4, ALTO * 4),
+  new THREE.MeshBasicMaterial({ map: crearTexturaCiudad() })
+);
+paisaje.position.set(0, ALTO * 0.6, zPared - 6);
+scene.add(paisaje);
 
-const frontonFondo = new THREE.Mesh(geometriaFronton, materialPared);
-frontonFondo.position.set(0, ALTO, -ANCHO / 2);
-scene.add(frontonFondo);
+// ── Zócalo (baseboard) ─────────────────────────────────────────────
 
-const frontonFrente = new THREE.Mesh(geometriaFronton, materialPared);
-frontonFrente.position.set(0, ALTO, ANCHO / 2);
-frontonFrente.rotation.y = Math.PI;
-scene.add(frontonFrente);
+const materialZocalo = new THREE.MeshStandardMaterial({ color: 0x1a1a1a });
+const zocH = 0.1;
 
-const luz = new THREE.DirectionalLight(0xffffff, 1.5);
-luz.position.set(3, 5, 3);
-scene.add(luz);
+const zocFrente = new THREE.Mesh(new THREE.BoxGeometry(ANCHO, zocH, 0.03), materialZocalo);
+zocFrente.position.set(0, zocH / 2, ANCHO / 2 - 0.015);
+scene.add(zocFrente);
 
-scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+const zocIzq = new THREE.Mesh(new THREE.BoxGeometry(0.03, zocH, ANCHO), materialZocalo);
+zocIzq.position.set(-ANCHO / 2 + 0.015, zocH / 2, 0);
+scene.add(zocIzq);
 
-// --- Mesita con tocadiscos ---
-// Grupo: varios meshes que se mueven/posicionan juntos como si fueran uno solo.
+const zocDer = new THREE.Mesh(new THREE.BoxGeometry(0.03, zocH, ANCHO), materialZocalo);
+zocDer.position.set(ANCHO / 2 - 0.015, zocH / 2, 0);
+scene.add(zocDer);
+
+// ── Iluminación ────────────────────────────────────────────────────
+
+const luzSol = new THREE.DirectionalLight(0xfff5e6, 2.8);
+luzSol.position.set(2, ALTO + 3, -ANCHO - 2);
+luzSol.target.position.set(0, 0, 0);
+luzSol.castShadow = true;
+luzSol.shadow.mapSize.width = 1024;
+luzSol.shadow.mapSize.height = 1024;
+luzSol.shadow.camera.near = 0.1;
+luzSol.shadow.camera.far = 30;
+luzSol.shadow.camera.left = -8;
+luzSol.shadow.camera.right = 8;
+luzSol.shadow.camera.top = 8;
+luzSol.shadow.camera.bottom = -2;
+scene.add(luzSol);
+scene.add(luzSol.target);
+
+scene.add(new THREE.AmbientLight(0xc8d8e8, 0.5));
+scene.add(new THREE.HemisphereLight(0x87ceeb, 0xb88860, 0.3));
+
+// ── Mesita con tocadiscos ──────────────────────────────────────────
+
 const mesita = new THREE.Group();
-
-const pataGeometria = new THREE.BoxGeometry(0.06, 0.5, 0.06);
+const pataGeo = new THREE.BoxGeometry(0.06, 0.5, 0.06);
 const materialMadera = new THREE.MeshStandardMaterial({ color: 0x6b4423 });
 
-// Una pata en cada esquina de la mesa (0.6 de ancho x 0.5 de profundidad,
-// agrandada para que el tocadiscos más grande entre bien).
-[
-  [-0.26, -0.21],
-  [0.26, -0.21],
-  [-0.26, 0.21],
-  [0.26, 0.21],
-].forEach(([x, z]) => {
-  const pata = new THREE.Mesh(pataGeometria, materialMadera);
+[[-0.26, -0.21], [0.26, -0.21], [-0.26, 0.21], [0.26, 0.21]].forEach(([x, z]) => {
+  const pata = new THREE.Mesh(pataGeo, materialMadera);
   pata.position.set(x, 0.25, z);
   mesita.add(pata);
 });
@@ -197,7 +321,6 @@ const tapa = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.04, 0.5), materialMader
 tapa.position.set(0, 0.52, 0);
 mesita.add(tapa);
 
-// El tocadiscos (más grande que antes): base + disco (gira solo) + brazo.
 const baseTocadiscos = new THREE.Mesh(
   new THREE.BoxGeometry(0.45, 0.05, 0.45),
   new THREE.MeshStandardMaterial({ color: 0x222222 })
@@ -220,94 +343,87 @@ brazo.position.set(0.19, 0.62, -0.15);
 brazo.rotation.y = 0.4;
 mesita.add(brazo);
 
-// Posición de la mesita: pegada a la pared del fondo, del lado derecho.
 mesita.position.set(3.5, 0, -4.3);
 scene.add(mesita);
 
-// Punto de referencia para medir distancia del jugador (a la altura del disco).
 const posTocadiscos = new THREE.Vector3(3.5, 1, -4.3);
 
-// --- Repisa con vinilos, en la pared, sobre el tocadiscos ---
-const repisa = new THREE.Mesh(
-  new THREE.BoxGeometry(1, 0.04, 0.25),
-  materialMadera
-);
+// ── Repisa con vinilos ─────────────────────────────────────────────
+
+const repisa = new THREE.Mesh(new THREE.BoxGeometry(1, 0.04, 0.25), materialMadera);
 repisa.position.set(3.5, 1.4, -4.85);
 scene.add(repisa);
 
-// Cada vinilo es una caja fina "parada" (como un disco guardado en su funda),
-// con colores distintos para que se note que son portadas distintas.
 const coloresVinilos = [0x3d5a6c, 0xc97b4a, 0x6b8e5a, 0xd9a05b, 0x8a4f5e];
-
 coloresVinilos.forEach((color, i) => {
   const vinilo = new THREE.Mesh(
     new THREE.BoxGeometry(0.02, 0.28, 0.28),
     new THREE.MeshStandardMaterial({ color })
   );
-  // i - 2 centra la fila (con 5 vinilos, quedan en -2,-1,0,1,2 de separación).
   vinilo.position.set(3.5 + (i - 2) * 0.19, 1.56, -4.85);
   scene.add(vinilo);
 });
 
-// --- Cama, contra la pared izquierda ---
-// Convención de esta sección: el eje X del grupo es el "largo" de la cama
-// (el lado negativo de X queda pegado a la pared, ahí va la almohada).
+// ── Cama estilo loft ───────────────────────────────────────────────
+
 const cama = new THREE.Group();
 
-const frame = new THREE.Mesh(
-  new THREE.BoxGeometry(2, 0.3, 1.2),
-  new THREE.MeshStandardMaterial({ color: 0x8b5e34 })
+const frameCama = new THREE.Mesh(
+  new THREE.BoxGeometry(2, 0.22, 1.4),
+  new THREE.MeshStandardMaterial({ color: 0x2a2a2a })
 );
-frame.position.set(0, 0.15, 0);
-cama.add(frame);
+frameCama.position.set(0, 0.11, 0);
+frameCama.castShadow = true;
+cama.add(frameCama);
 
 const colchon = new THREE.Mesh(
-  new THREE.BoxGeometry(1.9, 0.2, 1.1),
-  new THREE.MeshStandardMaterial({ color: 0xf2e9dc })
+  new THREE.BoxGeometry(1.9, 0.18, 1.3),
+  new THREE.MeshStandardMaterial({ color: 0xf0e8dc })
 );
-colchon.position.set(0, 0.4, 0);
+colchon.position.set(0, 0.31, 0);
 cama.add(colchon);
 
-const almohada = new THREE.Mesh(
-  new THREE.BoxGeometry(0.3, 0.12, 0.9),
-  new THREE.MeshStandardMaterial({ color: 0xfaf6ef })
+const sabana = new THREE.Mesh(
+  new THREE.BoxGeometry(1.4, 0.04, 1.35),
+  new THREE.MeshStandardMaterial({ color: 0xd5cdc3 })
 );
-almohada.position.set(-0.75, 0.48, 0);
-cama.add(almohada);
+sabana.position.set(0.2, 0.38, 0);
+cama.add(sabana);
 
 const manta = new THREE.Mesh(
-  new THREE.BoxGeometry(1.3, 0.06, 1.15),
-  new THREE.MeshStandardMaterial({ color: 0xc97b4a })
+  new THREE.BoxGeometry(1.5, 0.06, 1.38),
+  new THREE.MeshStandardMaterial({ color: 0x3a3a42 })
 );
-manta.position.set(0.3, 0.43, 0);
+manta.position.set(0.15, 0.42, 0);
+manta.castShadow = true;
 cama.add(manta);
 
-// Headboard (respaldo) contra la pared, para que se note que la cama "apoya" ahí.
-const respaldo = new THREE.Mesh(
-  new THREE.BoxGeometry(0.08, 0.9, 1.2),
-  new THREE.MeshStandardMaterial({ color: 0x8b5e34 })
+const almohada1 = new THREE.Mesh(
+  new THREE.BoxGeometry(0.3, 0.1, 0.5),
+  new THREE.MeshStandardMaterial({ color: 0xe8ddd0 })
 );
-respaldo.position.set(-1.04, 0.45, 0);
-cama.add(respaldo);
+almohada1.position.set(-0.75, 0.42, -0.25);
+cama.add(almohada1);
+
+const almohada2 = new THREE.Mesh(
+  new THREE.BoxGeometry(0.3, 0.1, 0.5),
+  new THREE.MeshStandardMaterial({ color: 0xe0d5c8 })
+);
+almohada2.position.set(-0.75, 0.42, 0.25);
+cama.add(almohada2);
 
 cama.position.set(-3.7, 0, -1);
 scene.add(cama);
 
-// PointerLockControls resuelve el "mouse look": bloquea el cursor en el centro
-// de la pantalla y rota la cámara según el movimiento del mouse (estilo FPS).
-// El WASD (moverse) lo programamos nosotros más abajo.
-const controls = new PointerLockControls(camera, document.body);
+// ── Controles ──────────────────────────────────────────────────────
 
+const controls = new PointerLockControls(camera, document.body);
 const overlay = document.getElementById("overlay");
 
 overlay.addEventListener("click", () => controls.lock());
-// "lock"/"unlock" son eventos que dispara el navegador cuando el pointer lock
-// se activa o se desactiva (ej: al apretar Escape, que el navegador captura siempre).
 controls.addEventListener("lock", () => overlay.setAttribute("hidden", ""));
 controls.addEventListener("unlock", () => overlay.removeAttribute("hidden"));
 
-// Estado de qué teclas están apretadas AHORA MISMO. Se actualiza con los
-// eventos de teclado, pero el movimiento real ocurre en el loop de animación.
 const teclas = { adelante: false, atras: false, izquierda: false, derecha: false };
 
 window.addEventListener("keydown", (e) => {
@@ -324,32 +440,27 @@ window.addEventListener("keyup", (e) => {
   if (e.code === "KeyD") teclas.derecha = false;
 });
 
-const VELOCIDAD = 3; // unidades por segundo
-const MARGEN_PARED = 0.5; // qué tan cerca de la pared se puede acercar la cámara
+const VELOCIDAD = 3;
+const MARGEN_PARED = 0.5;
 const LIMITE = ANCHO / 2 - MARGEN_PARED;
 
-// --- Salto y gravedad ---
-const GRAVEDAD = -20; // un poco más fuerte que la real, para que el salto se sienta ágil
-const FUERZA_SALTO = 6; // velocidad vertical inicial al saltar
+// ── Salto y gravedad ───────────────────────────────────────────────
+
+const GRAVEDAD = -20;
+const FUERZA_SALTO = 6;
 let velocidadY = 0;
 
 window.addEventListener("keydown", (e) => {
   if (e.code !== "Space" || !controls.isLocked) return;
-
-  // Solo se puede saltar estando en el piso (evita "doble salto" en el aire).
   const enElSuelo = Math.abs(camera.position.y - ALTURA_OJOS) < 0.01;
   if (enElSuelo) velocidadY = FUERZA_SALTO;
 });
 
-// --- Colisión simple contra los muebles ---
-// Cajas rectangulares (en X y Z) que marcan dónde "hay algo sólido".
-// Tienen un margen extra (0.3) para que no haga falta tocar el mueble
-// exactamente para que te frene, simulando que el jugador ocupa un lugar.
+// ── Colisión con muebles ───────────────────────────────────────────
+
 const MARGEN_MUEBLE = 0.3;
 const OBSTACULOS = [
-  // Cama
-  { minX: -4.8 - MARGEN_MUEBLE, maxX: -2.7 + MARGEN_MUEBLE, minZ: -1.6 - MARGEN_MUEBLE, maxZ: -0.4 + MARGEN_MUEBLE },
-  // Mesita con tocadiscos
+  { minX: -4.8 - MARGEN_MUEBLE, maxX: -2.7 + MARGEN_MUEBLE, minZ: -1.7 - MARGEN_MUEBLE, maxZ: -0.3 + MARGEN_MUEBLE },
   { minX: 3.2 - MARGEN_MUEBLE, maxX: 3.8 + MARGEN_MUEBLE, minZ: -4.55 - MARGEN_MUEBLE, maxZ: -4.05 + MARGEN_MUEBLE },
 ];
 
@@ -357,14 +468,14 @@ function estaDentroDeObstaculo(x, z) {
   return OBSTACULOS.some((o) => x >= o.minX && x <= o.maxX && z >= o.minZ && z <= o.maxZ);
 }
 
-// --- Interacción con el tocadiscos ---
+// ── Interacción con el tocadiscos ──────────────────────────────────
+
 const API_URL = "http://localhost:3000";
 const DISTANCIA_INTERACCION = 1.5;
 
 const promptInteraccion = document.getElementById("prompt-interaccion");
 const panelInfo = document.getElementById("panel-info");
 const panelContenido = document.getElementById("panel-contenido");
-
 let panelAbierto = false;
 
 async function abrirPanel() {
@@ -393,19 +504,12 @@ function cerrarPanel() {
 
 window.addEventListener("keydown", (e) => {
   if (e.code !== "KeyE" || !controls.isLocked) return;
-
-  if (panelAbierto) {
-    cerrarPanel();
-    return;
-  }
-
-  const distancia = camera.position.distanceTo(posTocadiscos);
-  if (distancia <= DISTANCIA_INTERACCION) abrirPanel();
+  if (panelAbierto) { cerrarPanel(); return; }
+  if (camera.position.distanceTo(posTocadiscos) <= DISTANCIA_INTERACCION) abrirPanel();
 });
 
-// Clock mide el tiempo real entre frames (delta). Sin esto, el movimiento
-// dependería de qué tan rápido es el monitor/la compu (más fps = te moverías
-// más rápido), en vez de tener una velocidad constante en el tiempo.
+// ── Loop de animación ──────────────────────────────────────────────
+
 const reloj = new THREE.Clock();
 
 function animar() {
@@ -415,8 +519,6 @@ function animar() {
   const distanciaPaso = VELOCIDAD * delta;
 
   if (controls.isLocked) {
-    // Gravedad: la velocidad vertical se reduce cada frame (integración simple:
-    // velocidad += aceleración × tiempo), y esa velocidad mueve la posición.
     velocidadY += GRAVEDAD * delta;
     camera.position.y += velocidadY * delta;
 
@@ -427,8 +529,6 @@ function animar() {
       enElSuelo = true;
     }
 
-    // Mientras el panel está abierto, pausamos el caminar (WASD) para poder
-    // leer tranquilo; mirar alrededor con el mouse se sigue pudiendo.
     if (!panelAbierto) {
       const xPrevio = camera.position.x;
       const zPrevio = camera.position.z;
@@ -438,30 +538,24 @@ function animar() {
       if (teclas.derecha) controls.moveRight(distanciaPaso);
       if (teclas.izquierda) controls.moveRight(-distanciaPaso);
 
-      // Clamp manual: evita que la cámara atraviese las paredes. No es física
-      // real, solo un límite simple en cada eje.
       camera.position.x = Math.max(-LIMITE, Math.min(LIMITE, camera.position.x));
       camera.position.z = Math.max(-LIMITE, Math.min(LIMITE, camera.position.z));
 
-      // Los muebles solo frenan si estás pisando el piso: si saltaste y en
-      // este instante estás en el aire, se los puede "pasar por arriba".
       if (enElSuelo && estaDentroDeObstaculo(camera.position.x, camera.position.z)) {
         camera.position.x = xPrevio;
         camera.position.z = zPrevio;
       }
     }
 
-    const distanciaTocadiscos = camera.position.distanceTo(posTocadiscos);
-    if (!panelAbierto && distanciaTocadiscos <= DISTANCIA_INTERACCION) {
+    const distTocadiscos = camera.position.distanceTo(posTocadiscos);
+    if (!panelAbierto && distTocadiscos <= DISTANCIA_INTERACCION) {
       promptInteraccion.removeAttribute("hidden");
     } else {
       promptInteraccion.setAttribute("hidden", "");
     }
   }
 
-  // El disco gira todo el tiempo, como detalle ambiente (no depende de la interacción).
   disco.rotation.y += delta * 2;
-
   renderer.render(scene, camera);
 }
 
