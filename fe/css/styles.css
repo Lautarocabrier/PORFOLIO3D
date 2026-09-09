@@ -1,0 +1,52 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: system-ui, sans-serif;
+  background: #111;
+  color: #eee;
+}
+
+header {
+  padding: 2rem 1rem;
+  text-align: center;
+}
+
+main {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+h2 {
+  margin: 2rem 0 1rem;
+}
+
+/* Mobile-first: por defecto, una sola columna (celular). */
+.grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+
+.card {
+  background: #1e1e1e;
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.card h3 {
+  margin-bottom: 0.5rem;
+}
+
+/* A partir de 768px (tablet/desktop), pasamos a 2 columnas.
+   Esto es "mobile-first": escribís para celular primero,
+   y agregás reglas que solo aplican en pantallas más grandes. */
+@media (min-width: 768px) {
+  .grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
