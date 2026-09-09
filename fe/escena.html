@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Escena 3D - prueba</title>
+    <style>
+      /* El canvas de Three.js debe ocupar toda la pantalla, sin scroll ni márgenes. */
+      body {
+        margin: 0;
+        overflow: hidden;
+        background: #000;
+      }
+      canvas {
+        display: block;
+      }
+    </style>
+
+    <!-- Import map: le dice al navegador que cuando el JS haga
+         import ... from "three", lo busque en esta URL de CDN.
+         Sin esto, "three" no significaría nada para el navegador. -->
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.186.0/build/three.module.js"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <script type="module" src="js/scene.js"></script>
+  </body>
+</html>
