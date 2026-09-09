@@ -9,9 +9,13 @@ const camera = new THREE.PerspectiveCamera(
   0.1,
   1000
 );
-// Posicionamos la cámara DENTRO de la habitación, a una altura de ojos
-// humana aproximada (1.6m si 1 unidad = 1 metro, convención habitual en 3D).
-camera.position.set(0, 1.6, 3);
+// Altura de ojos humana aproximada (1.6m si 1 unidad = 1 metro, convención
+// habitual en 3D). Declarada acá arriba porque también la usan el salto y
+// la colisión más abajo.
+const ALTURA_OJOS = 1.6;
+
+// Posicionamos la cámara DENTRO de la habitación, a esa altura de ojos.
+camera.position.set(0, ALTURA_OJOS, 3);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -94,6 +98,74 @@ const paredDerecha = new THREE.Mesh(new THREE.PlaneGeometry(ANCHO, ALTO), materi
 paredDerecha.position.set(ANCHO / 2, ALTO / 2, 0);
 paredDerecha.rotation.y = -Math.PI / 2;
 scene.add(paredDerecha);
+
+// --- Techo a dos aguas (estilo cabaña) ---
+// Un techo a dos aguas son dos "faldones" (paneles inclinados) que suben
+// desde el borde de cada pared hasta encontrarse en una cumbrera central.
+const ALTURA_TECHO = 2; // cuánto sube el techo desde el borde de la pared hasta el pico
+const CORRIDA_TECHO = ANCHO / 2; // distancia horizontal desde la pared hasta el centro
+// Teorema de Pitágoras: el largo real del faldón (la "hipotenusa" de la subida).
+const LARGO_FALDON = Math.sqrt(CORRIDA_TECHO ** 2 + ALTURA_TECHO ** 2);
+// Ángulo de inclinación respecto a la horizontal (atan2 da el ángulo de un triángulo
+// a partir de sus catetos: opuesto=ALTURA_TECHO, adyacente=CORRIDA_TECHO).
+const ANGULO_TECHO = Math.atan2(ALTURA_TECHO, CORRIDA_TECHO);
+
+// DoubleSide: el panel se ve desde las dos caras. Con una sola rotación
+// nueva (no probada visualmente todavía como las paredes) es más seguro
+// que apostar a que la normal quedó mirando exactamente para el lado justo.
+const materialTecho = new THREE.MeshStandardMaterial({ color: 0x5c3a21, side: THREE.DoubleSide });
+
+// Técnica de "bisagra": un Group ubicado justo en el borde superior de la
+// pared (donde el faldón debe arrancar), rotado en Z. Todo lo que cuelga
+// del group rota junto con él, como una puerta sobre su gozne.
+const bisagraDerecha = new THREE.Group();
+bisagraDerecha.position.set(ANCHO / 2, ALTO, 0);
+bisagraDerecha.rotation.z = -ANGULO_TECHO;
+scene.add(bisagraDerecha);
+
+const faldonDerecho = new THREE.Mesh(
+  new THREE.PlaneGeometry(LARGO_FALDON, ANCHO),
+  materialTecho
+);
+faldonDerecho.rotation.x = -Math.PI / 2; // lo acuesta, igual que hicimos con el piso
+faldonDerecho.position.set(-LARGO_FALDON / 2, 0, 0); // lo corre para que arranque EN la bisagra
+bisagraDerecha.add(faldonDerecho);
+
+const bisagraIzquierda = new THREE.Group();
+bisagraIzquierda.position.set(-ANCHO / 2, ALTO, 0);
+bisagraIzquierda.rotation.z = ANGULO_TECHO; // espejado: ángulo opuesto
+scene.add(bisagraIzquierda);
+
+const faldonIzquierdo = new THREE.Mesh(
+  new THREE.PlaneGeometry(LARGO_FALDON, ANCHO),
+  materialTecho
+);
+faldonIzquierdo.rotation.x = -Math.PI / 2;
+faldonIzquierdo.position.set(LARGO_FALDON / 2, 0, 0); // espejado: hacia el otro lado
+bisagraIzquierda.add(faldonIzquierdo);
+
+// Viga de cumbrera: una tabla larga en el pico, donde se juntan los dos faldones.
+const cumbrera = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, ANCHO), materialTecho);
+cumbrera.position.set(0, ALTO + ALTURA_TECHO, 0);
+scene.add(cumbrera);
+
+// Frontones: los triángulos que tapan el hueco arriba de la pared frontal y
+// la del fondo (donde el techo, visto de frente, forma una "A").
+const formaFronton = new THREE.Shape();
+formaFronton.moveTo(-ANCHO / 2, 0);
+formaFronton.lineTo(ANCHO / 2, 0);
+formaFronton.lineTo(0, ALTURA_TECHO);
+formaFronton.lineTo(-ANCHO / 2, 0);
+const geometriaFronton = new THREE.ShapeGeometry(formaFronton);
+
+const frontonFondo = new THREE.Mesh(geometriaFronton, materialPared);
+frontonFondo.position.set(0, ALTO, -ANCHO / 2);
+scene.add(frontonFondo);
+
+const frontonFrente = new THREE.Mesh(geometriaFronton, materialPared);
+frontonFrente.position.set(0, ALTO, ANCHO / 2);
+frontonFrente.rotation.y = Math.PI;
+scene.add(frontonFrente);
 
 const luz = new THREE.DirectionalLight(0xffffff, 1.5);
 luz.position.set(3, 5, 3);
@@ -256,6 +328,35 @@ const VELOCIDAD = 3; // unidades por segundo
 const MARGEN_PARED = 0.5; // qué tan cerca de la pared se puede acercar la cámara
 const LIMITE = ANCHO / 2 - MARGEN_PARED;
 
+// --- Salto y gravedad ---
+const GRAVEDAD = -20; // un poco más fuerte que la real, para que el salto se sienta ágil
+const FUERZA_SALTO = 6; // velocidad vertical inicial al saltar
+let velocidadY = 0;
+
+window.addEventListener("keydown", (e) => {
+  if (e.code !== "Space" || !controls.isLocked) return;
+
+  // Solo se puede saltar estando en el piso (evita "doble salto" en el aire).
+  const enElSuelo = Math.abs(camera.position.y - ALTURA_OJOS) < 0.01;
+  if (enElSuelo) velocidadY = FUERZA_SALTO;
+});
+
+// --- Colisión simple contra los muebles ---
+// Cajas rectangulares (en X y Z) que marcan dónde "hay algo sólido".
+// Tienen un margen extra (0.3) para que no haga falta tocar el mueble
+// exactamente para que te frene, simulando que el jugador ocupa un lugar.
+const MARGEN_MUEBLE = 0.3;
+const OBSTACULOS = [
+  // Cama
+  { minX: -4.8 - MARGEN_MUEBLE, maxX: -2.7 + MARGEN_MUEBLE, minZ: -1.6 - MARGEN_MUEBLE, maxZ: -0.4 + MARGEN_MUEBLE },
+  // Mesita con tocadiscos
+  { minX: 3.2 - MARGEN_MUEBLE, maxX: 3.8 + MARGEN_MUEBLE, minZ: -4.55 - MARGEN_MUEBLE, maxZ: -4.05 + MARGEN_MUEBLE },
+];
+
+function estaDentroDeObstaculo(x, z) {
+  return OBSTACULOS.some((o) => x >= o.minX && x <= o.maxX && z >= o.minZ && z <= o.maxZ);
+}
+
 // --- Interacción con el tocadiscos ---
 const API_URL = "http://localhost:3000";
 const DISTANCIA_INTERACCION = 1.5;
@@ -314,9 +415,24 @@ function animar() {
   const distanciaPaso = VELOCIDAD * delta;
 
   if (controls.isLocked) {
+    // Gravedad: la velocidad vertical se reduce cada frame (integración simple:
+    // velocidad += aceleración × tiempo), y esa velocidad mueve la posición.
+    velocidadY += GRAVEDAD * delta;
+    camera.position.y += velocidadY * delta;
+
+    let enElSuelo = false;
+    if (camera.position.y <= ALTURA_OJOS) {
+      camera.position.y = ALTURA_OJOS;
+      velocidadY = 0;
+      enElSuelo = true;
+    }
+
     // Mientras el panel está abierto, pausamos el caminar (WASD) para poder
     // leer tranquilo; mirar alrededor con el mouse se sigue pudiendo.
     if (!panelAbierto) {
+      const xPrevio = camera.position.x;
+      const zPrevio = camera.position.z;
+
       if (teclas.adelante) controls.moveForward(distanciaPaso);
       if (teclas.atras) controls.moveForward(-distanciaPaso);
       if (teclas.derecha) controls.moveRight(distanciaPaso);
@@ -326,6 +442,13 @@ function animar() {
       // real, solo un límite simple en cada eje.
       camera.position.x = Math.max(-LIMITE, Math.min(LIMITE, camera.position.x));
       camera.position.z = Math.max(-LIMITE, Math.min(LIMITE, camera.position.z));
+
+      // Los muebles solo frenan si estás pisando el piso: si saltaste y en
+      // este instante estás en el aire, se los puede "pasar por arriba".
+      if (enElSuelo && estaDentroDeObstaculo(camera.position.x, camera.position.z)) {
+        camera.position.x = xPrevio;
+        camera.position.z = zPrevio;
+      }
     }
 
     const distanciaTocadiscos = camera.position.distanceTo(posTocadiscos);
