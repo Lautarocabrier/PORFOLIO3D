@@ -1,0 +1,15 @@
+{
+  "name": "portfolio-cloude",
+  "version": "1.0.0",
+  "description": "Backend del portfolio de Lautaro",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1"
+  }
+}
