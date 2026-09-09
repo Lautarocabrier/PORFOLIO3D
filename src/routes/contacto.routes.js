@@ -1,12 +1,13 @@
 import { Router } from "express";
+import { AppError } from "../errors/AppError.js";
 
 const router = Router();
 
-router.post("/", (req, res) => {
+router.post("/", (req, res, next) => {
   const { nombre, email, mensaje } = req.body;
 
   if (!nombre || !email || !mensaje) {
-    return res.status(400).json({ error: "Faltan campos: nombre, email o mensaje" });
+    return next(new AppError("Faltan campos: nombre, email o mensaje", 400));
   }
 
   console.log("Nuevo contacto:", { nombre, email, mensaje });

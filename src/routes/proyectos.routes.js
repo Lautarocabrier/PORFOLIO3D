@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { proyectos } from "../data/proyectos.js";
+import { AppError } from "../errors/AppError.js";
 
 // Router es como una "mini app" de Express: agrupa rutas relacionadas
 // para no tener todo amontonado en server.js.
@@ -15,12 +16,12 @@ router.get("/", (req, res) => {
   res.json(resultado);
 });
 
-router.get("/:id", (req, res) => {
+router.get("/:id", (req, res, next) => {
   const id = Number(req.params.id);
   const proyecto = proyectos.find((p) => p.id === id);
 
   if (!proyecto) {
-    return res.status(404).json({ error: "Proyecto no encontrado" });
+    return next(new AppError("Proyecto no encontrado", 404));
   }
 
   res.json(proyecto);
